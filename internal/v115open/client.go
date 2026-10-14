@@ -28,7 +28,7 @@ var cachedClients map[string]*OpenClient = make(map[string]*OpenClient, 0)
 var cachedClientsMutex sync.RWMutex
 
 func UpdateToken(accountId uint, cookie string, refreshToken string) {
-	for key, client := range cachedClients {
+	for _, client := range cachedClients {
 		if client.AccountId == accountId {
 			client.SetCredentials(cookie, refreshToken, "115_cookie")
 		}

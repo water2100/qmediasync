@@ -1,0 +1,43 @@
+name: qmediasync
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [qms]
+
+  qmediasync:
+    image: ${QMS_IMAGE:-ghcr.io/water2100/qmediasync:latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB}
+      DB_SSLMODE: disable
+    ports:
+      - "127.0.0.1:12333:12333"
+    volumes:
+      - ./data/config:/app/config
+      - ./data/media:/media
+    networks: [qms]
+
+networks:
+  qms:
+    driver: bridge

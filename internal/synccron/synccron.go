@@ -8,7 +8,6 @@ import (
 	"Q115-STRM/internal/models"
 	"Q115-STRM/internal/notificationmanager"
 	"Q115-STRM/internal/scrape"
-	"Q115-STRM/internal/v115open"
 	"context"
 	"fmt"
 	"sync/atomic"
@@ -108,48 +107,12 @@ func RefreshOAuthAccessToken() {
 	accounts, _ := models.GetAllAccount()
 	now := time.Now().Unix()
 	for _, account := range accounts {
-		if account.RefreshToken == "" {
-			helpers.AppLogger.Infof("账号 %d 没有刷新token，跳过", account.ID)
+		// 115 原生二维码登录只使用本地 Cookie，不存在也不允许自动刷新令牌。
+		if account.SourceType == models.SourceType115 {
 			continue
 		}
-		if account.SourceType == models.SourceType115 {
-			// helpers.AppLogger.Infof("当前时间: %d, 过期时间：%d", now, account.TokenExpiriesTime-3600)
-			if account.TokenExpiriesTime-1800 > now {
-				// helpers.AppLogger.Infof("115账号token未过期，账号ID: %d, 115用户名：%s， 过期时间：%s", account.ID, account.Username, time.Unix(account.TokenExpiriesTime-1800, 0).Format("2006-01-02 15:04:05"))
-				continue
-			}
-			helpers.AppLogger.Infof("开始刷新115账号token，账号ID: %d, 115用户名：%s", account.ID, account.Username)
-			// 刷新115的访问凭证
-			client := account.Get115Client()
-			tokenData, err := client.RefreshToken(account.RefreshToken)
-			if err != nil {
-				helpers.AppLogger.Errorf("刷新115访问凭证失败: %s", err.Error())
-				// 清空token
-				account.ClearToken(err.Error())
-				ctx := context.Background()
-				notif := &models.Notification{
-					Type:      models.SystemAlert,
-					Title:     "🔐 115开放平台访问凭证已失效",
-					Content:   fmt.Sprintf("账号ID：%d\n用户名：%s\n请重新授权\n⏰ 时间: %s", int(account.ID), account.Username, time.Now().Format("2006-01-02 15:04:05")),
-					Timestamp: time.Now(),
-					Priority:  models.HighPriority,
-				}
-				if notificationmanager.GlobalEnhancedNotificationManager != nil {
-					if err := notificationmanager.GlobalEnhancedNotificationManager.SendNotification(ctx, notif); err != nil {
-						helpers.AppLogger.Errorf("发送访问凭证失效通知失败: %v", err)
-					}
-				}
-				continue
-			}
-			// 更新账号的token
-			if suc := account.UpdateToken(tokenData.AccessToken, tokenData.RefreshToken, tokenData.ExpiresIn); !suc {
-				helpers.AppLogger.Errorf("更新115账号token失败")
-				continue
-			}
-			// 更新其他客户端的token
-			v115open.UpdateToken(account.ID, tokenData.AccessToken, tokenData.RefreshToken)
-			// 刷新成功，更新账号的token
-			helpers.AppLogger.Infof("刷新115账号token成功，账号ID: %d, 新到期时间: %d => %s", account.ID, tokenData.ExpiresIn, time.Unix(account.TokenExpiriesTime, 0).Format("2006-01-02 15:04:05"))
+		if account.RefreshToken == "" {
+			helpers.AppLogger.Infof("账号 %d 没有刷新token，跳过", account.ID)
 			continue
 		}
 		if account.SourceType == models.SourceTypeBaiduPan {

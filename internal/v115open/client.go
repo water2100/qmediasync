@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,28 +19,29 @@ type OpenClient struct {
 	client          *resty.Client
 	AccessToken     string // 访问令牌
 	RefreshTokenStr string // 刷新令牌
+	Cookie          string // 原生二维码登录会话
+	AuthMode        string // 认证方式
 }
 
 // 全局HTTP客户端实例
 var cachedClients map[string]*OpenClient = make(map[string]*OpenClient, 0)
 var cachedClientsMutex sync.RWMutex
 
-func UpdateToken(accountId uint, token string, refreshToken string) {
+func UpdateToken(accountId uint, cookie string, refreshToken string) {
 	for key, client := range cachedClients {
 		if client.AccountId == accountId {
-			client.SetAuthToken(token, refreshToken)
-			helpers.AppLogger.Infof("更新115客户端 %s 的token成功", key)
+			client.SetCredentials(cookie, refreshToken, "115_cookie")
 		}
 	}
 }
 
 // NewHttpClient 创建新的HTTP客户端
-func GetClient(accountId uint, appId string, token string, refreshToken string) *OpenClient {
+func GetClient(accountId uint, appId string, credential string, refreshToken string, authMode string) *OpenClient {
 	cachedClientsMutex.RLock()
 	defer cachedClientsMutex.RUnlock()
 	clientKey := fmt.Sprintf("%d", accountId)
 	if client, exists := cachedClients[clientKey]; exists {
-		client.SetAuthToken(token, refreshToken)
+		client.SetCredentials(credential, refreshToken, authMode)
 		return client
 	}
 
@@ -49,14 +51,15 @@ func GetClient(accountId uint, appId string, token string, refreshToken string) 
 		AppId:     appId,
 		AccountId: accountId,
 	}
-	openClient.SetAuthToken(token, refreshToken)
+	openClient.SetCredentials(credential, refreshToken, authMode)
 	cachedClients[clientKey] = openClient
 	return openClient
 }
 
-// SetAuthToken 设置认证令牌
-func (c *OpenClient) SetAuthToken(token string, refreshToken string) {
-	c.AccessToken = token
+func (c *OpenClient) SetCredentials(credential string, refreshToken string, authMode string) {
+	c.AuthMode = authMode
+	c.Cookie = credential
+	c.AccessToken = ""
 	c.RefreshTokenStr = refreshToken
 }
 
@@ -155,16 +158,15 @@ func (c *OpenClient) doRequest(url string, req *resty.Request, options *RequestC
 
 // doAuthRequest 带重试的认证请求方法（使用全局队列）
 func (c *OpenClient) doAuthRequest(ctx context.Context, url string, req *resty.Request, options *RequestConfig, respData any) (*resty.Response, []byte, error) {
-	if c.AccessToken == "" {
-		// 没有token，直接报错
-		return nil, nil, fmt.Errorf("115账号授权失效，请在网盘账号管理中重新授权")
+	if c.Cookie == "" {
+		return nil, nil, fmt.Errorf("115账号需要重新扫码登录")
 	}
 	req.SetTimeout(options.Timeout)
 	// 设置默认头
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", DEFAULTUA)
 	}
-	req.SetAuthToken(c.AccessToken).SetDoNotParseResponse(true)
+	req.SetHeader("Cookie", c.Cookie).SetDoNotParseResponse(true)
 
 	var lastErr error
 	var lastRespBytes []byte
@@ -188,6 +190,10 @@ func (c *OpenClient) doAuthRequest(ctx context.Context, url string, req *resty.R
 
 		// 等待响应
 		queueResp := <-respChan
+		if c.isCookieInvalid(queueResp) {
+			c.markCookieInvalid("115登录状态已失效，请重新扫码登录")
+			return queueResp.Response, queueResp.RespBytes, fmt.Errorf("115账号需要重新扫码登录")
+		}
 
 		if queueResp.Error == nil && queueResp.RespData != nil {
 			// 请求成功
@@ -204,18 +210,6 @@ func (c *OpenClient) doAuthRequest(ctx context.Context, url string, req *resty.R
 		}
 
 		lastErr = queueResp.Error
-
-		// Token相关错误处理
-		if queueResp.RespData != nil {
-			switch queueResp.RespData.Code {
-			case ACCESS_TOKEN_AUTH_FAIL, ACCESS_AUTH_INVALID, ACCESS_TOKEN_EXPIRY_CODE:
-				helpers.V115Log.Errorf("访问凭证过期，等待自动刷新后下次重试")
-				lastErr = fmt.Errorf("访问凭证（Token）过期")
-			case REFRESH_TOKEN_INVALID:
-				lastErr = fmt.Errorf("访问凭证（Token）无效，请重新登录")
-				return queueResp.Response, queueResp.RespBytes, lastErr
-			}
-		}
 
 		// 如果是限流错误，不重试
 		if queueResp.IsThrottled {
@@ -234,4 +228,23 @@ func (c *OpenClient) doAuthRequest(ctx context.Context, url string, req *resty.R
 		lastRespBytes = queueResp.RespBytes
 	}
 	return nil, lastRespBytes, lastErr
+}
+
+func (c *OpenClient) isCookieInvalid(response *RequestResponse) bool {
+	if response.Response != nil && (response.Response.StatusCode() == 401 || response.Response.StatusCode() == 403) {
+		return true
+	}
+	if response.RespData == nil {
+		return false
+	}
+	if response.RespData.Code == 401 || response.RespData.Code == 403 || response.RespData.Code == ACCESS_TOKEN_AUTH_FAIL || response.RespData.Code == ACCESS_AUTH_INVALID || response.RespData.Code == ACCESS_TOKEN_EXPIRY_CODE {
+		return true
+	}
+	message := strings.ToLower(response.RespData.Message)
+	return strings.Contains(message, "未登录") || strings.Contains(message, "登录失效") || strings.Contains(message, "cookie") || strings.Contains(message, "login")
+}
+
+func (c *OpenClient) markCookieInvalid(reason string) {
+	c.Cookie = ""
+	helpers.PublishSync(helpers.V115TokenInValidEvent, map[string]any{"account_id": c.AccountId, "reason": reason})
 }

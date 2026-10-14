@@ -25,7 +25,14 @@ type Account struct {
 	Password          string     `json:"password" gorm:"type:string;size:256"`            // openlist的用户密码
 	BaseUrl           string     `json:"base_url" gorm:"type:string;size:1024"`           // openlist的访问地址http[s]://ip:port
 	TokenFailedReason string     `json:"token_failed_reason" gorm:"type:string;size:256"` // 刷新token失败的原因
+	AuthMode          string     `json:"auth_mode" gorm:"type:string;size:32"`
+	LoginApp          string     `json:"login_app" gorm:"type:string;size:32"`
 }
+
+const (
+	AuthMode115Cookie      = "115_cookie"
+	AuthMode115OAuthLegacy = "115_oauth_legacy"
+)
 
 func (account *Account) TableName() string {
 	return "account"
@@ -70,7 +77,30 @@ func (account *Account) UpdateUser(userId string, username string) bool {
 
 // 如果是normal模式，创建一个新的客户端，不启用限速器
 func (account *Account) Get115Client() *v115open.OpenClient {
-	return v115open.GetClient(account.ID, account.AppId, account.Token, account.RefreshToken)
+	return v115open.GetClient(account.ID, account.AppId, account.Token, account.RefreshToken, account.AuthMode)
+}
+
+func (account *Account) Update115Cookie(cookie string, userID string, username string, loginApp string) bool {
+	account.Token = cookie
+	account.RefreshToken = ""
+	account.TokenExpiriesTime = 0
+	account.AuthMode = AuthMode115Cookie
+	account.LoginApp = loginApp
+	account.UserId = userID
+	if username != "" {
+		account.Username = username
+	}
+	account.TokenFailedReason = ""
+	updates := map[string]any{
+		"token": cookie, "refresh_token": "", "token_expiries_time": 0,
+		"auth_mode": AuthMode115Cookie, "login_app": loginApp, "user_id": userID,
+		"username": account.Username, "token_failed_reason": "",
+	}
+	if err := db.Db.Model(account).Where("id = ?", account.ID).Updates(updates).Error; err != nil {
+		helpers.AppLogger.Errorf("保存115本地登录会话失败: %v", err)
+		return false
+	}
+	return true
 }
 
 func (account *Account) GetOpenListClient() *openlist.Client {
@@ -107,6 +137,20 @@ func (account *Account) ClearToken(reason string) {
 	if err != nil {
 		helpers.AppLogger.Errorf("清空开放平台访问凭证失败: %v", err)
 		return
+	}
+}
+
+func (account *Account) Mark115NeedRelogin(reason string) {
+	account.Token = ""
+	account.RefreshToken = ""
+	account.TokenExpiriesTime = 0
+	account.AuthMode = AuthMode115Cookie
+	account.TokenFailedReason = reason
+	if err := db.Db.Model(account).Where("id = ?", account.ID).Updates(map[string]any{
+		"token": "", "refresh_token": "", "token_expiries_time": 0,
+		"auth_mode": AuthMode115Cookie, "token_failed_reason": reason,
+	}).Error; err != nil {
+		helpers.AppLogger.Errorf("标记115账号需要重新登录失败: %v", err)
 	}
 }
 
@@ -171,6 +215,10 @@ func CreateAccountByName(name string, srouceType SourceType, appId string) (*Acc
 	account.TokenExpiriesTime = 0
 	account.UserId = ""
 	account.Username = ""
+	if srouceType == SourceType115 {
+		account.AuthMode = AuthMode115Cookie
+		account.LoginApp = "ios"
+	}
 
 	// 插入数据库，如果插入失败则报错
 	err := db.Db.Save(account).Error
@@ -350,12 +398,12 @@ func HandleV115TokenInvalid(event helpers.Event) helpers.EventResult {
 			Data:    nil,
 		}
 	}
-	account.ClearToken(eventData["reason"].(string))
+	account.Mark115NeedRelogin(eventData["reason"].(string))
 	ctx := context.Background()
 	notif := &Notification{
 		Type:      SystemAlert,
-		Title:     "🔐 115开放平台访问凭证已失效",
-		Content:   fmt.Sprintf("账号ID：%d\n用户名：%s\n请重新授权\n⏰ 时间: %s", int(account.ID), account.Username, time.Now().Format("2006-01-02 15:04:05")),
+		Title:     "🔐 115登录会话已失效",
+		Content:   fmt.Sprintf("账号ID：%d\n用户名：%s\n请重新扫码登录\n⏰ 时间: %s", int(account.ID), account.Username, time.Now().Format("2006-01-02 15:04:05")),
 		Timestamp: time.Now(),
 		Priority:  HighPriority,
 	}

@@ -49,3 +49,5 @@ config/config - 副本.yml
 QMediaSync
 *.mp4
 ./docs/design/*
+deploy/.env
+deploy/data/

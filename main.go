@@ -442,7 +442,7 @@ func initOthers() {
 	helpers.SubscribeSync(helpers.V115TokenInValidEvent, models.HandleV115TokenInvalid)
 	helpers.SubscribeSync(helpers.SaveOpenListTokenEvent, models.HandleOpenListTokenSaveSync)
 	models.FailAllRunningSyncTasks()   // 将所有运行中的同步任务设置为失败状态
-	synccron.RefreshOAuthAccessToken() // 启动时刷新一次115的访问凭证，防止有过期的token导致同步失败
+	synccron.RefreshOAuthAccessToken() // 启动时刷新仍使用令牌的网盘凭证
 
 	// 设置115请求队列的统计保存回调函数
 	v115open.SetGlobalExecutorStatSaver(func(requestTime int64, url, method string, duration int64, isThrottled bool) {
@@ -563,6 +563,7 @@ func setRouter(r *gin.Engine) {
 		api.POST("/auth/115-qrcode-status", controllers.GetQrCodeStatus)    // 查询115二维码扫码状态
 		api.GET("/115/status", controllers.Get115Status)                    // 查询115状态
 		api.GET("/115/oauth-url", controllers.GetOAuthUrl)                  // 获取115 OAuth登录地址
+		api.GET("/115/native-login", controllers.Native115LoginPage)         // 115原生二维码登录页面
 		api.POST("115/oauth-confirm", controllers.ConfirmOAuthCode)         // 确认OAuth登录
 		api.GET("/115/queue/stats", controllers.GetQueueStats)              // 获取115 OpenAPI请求队列统计数据
 		api.POST("/115/queue/rate-limit", controllers.SetQueueRateLimit)    // 设置115 OpenAPI请求队列速率限制

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"Q115-STRM/internal/db"
 	"Q115-STRM/internal/helpers"
 	"Q115-STRM/internal/models"
 
@@ -36,7 +37,6 @@ func GetAccountList(c *gin.Context) {
 		AppIdName         string            `json:"app_id_name"`
 		Username          string            `json:"username"`
 		UserId            string            `json:"user_id"`
-		Token             string            `json:"token"`
 		CreatedAt         int64             `json:"created_at"`
 		TokenFailedReason string            `json:"token_failed_reason"`
 		BaseUrl           string            `json:"base_url"`
@@ -52,11 +52,17 @@ func GetAccountList(c *gin.Context) {
 			AppIdName:         "",
 			Username:          account.Username,
 			UserId:            string(account.UserId),
-			Token:             account.Token,
 			CreatedAt:         account.CreatedAt,
 			TokenFailedReason: account.TokenFailedReason,
 			BaseUrl:           account.BaseUrl,
 		}
+		if account.SourceType == models.SourceType115 {
+			a.AppIdName = "原生二维码（Cookie）"
+			a.AuthType = account.AuthMode
+			if account.Token == "" {
+				a.TokenFailedReason = "需要重新扫码登录"
+			}
+		} else {
 		switch account.AppId {
 		case "Q115-STRM":
 			a.AppId = ""
@@ -70,6 +76,7 @@ func GetAccountList(c *gin.Context) {
 		default:
 			a.AppIdName = "自定义"
 			a.AppId = account.AppId
+		}
 		}
 		if a.Name == "" {
 			a.Name = account.Username
@@ -108,6 +115,7 @@ func CreateTmpAccount(c *gin.Context) {
 		Name       string            `json:"name" form:"name"`
 		AppId      string            `json:"app_id" form:"app_id"`
 		AppIdName  string            `json:"app_id_name" form:"app_id_name"`
+		LoginApp   string            `json:"login_app" form:"login_app"`
 	}
 	tmpAccount := &tmpAccountReq{}
 	if err := c.ShouldBind(tmpAccount); err != nil {
@@ -120,14 +128,17 @@ func CreateTmpAccount(c *gin.Context) {
 		appId = helpers.GlobalConfig.BaiDuPanAppId
 	}
 
-	if models.SourceType115 == tmpAccount.SourceType {
-		// 检查appIDName是否有效
-		appId = tmpAccount.AppIdName
-	}
 	account, err := models.CreateAccountByName(tmpAccount.Name, tmpAccount.SourceType, appId)
 	if err != nil {
 		c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "创建开放平台账号失败", Data: nil})
 		return
+	}
+	if tmpAccount.SourceType == models.SourceType115 && tmpAccount.LoginApp != "" {
+		account.LoginApp = tmpAccount.LoginApp
+		if err := db.Db.Model(account).Update("login_app", tmpAccount.LoginApp).Error; err != nil {
+			c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "保存115登录端失败", Data: nil})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, APIResponse[models.Account]{Code: Success, Message: "创建开放平台账号成功", Data: *account})
 }

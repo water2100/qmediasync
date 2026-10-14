@@ -18,7 +18,7 @@ type Migrator struct {
 	VersionCode int `json:"version_code"` // 版本号
 }
 
-var MaxVersionCode = 38
+var MaxVersionCode = 39
 var AllTables = []any{
 	BackupConfig{}, BackupRecord{},
 	ApiKey{}, Settings{}, Sync{}, User{}, Account{},
@@ -467,6 +467,18 @@ func Migrate() {
 		// 添加刮削失败通知类型到emby_config表
 		addNewNotificationRulesForExistingChannels(db.Db)
 		helpers.AppLogger.Info("已添加刮削整理失败通知类型")
+		migrator.UpdateVersionCode(db.Db)
+	}
+	if migrator.VersionCode == 39 {
+		db.Db.AutoMigrate(Account{})
+		result := db.Db.Model(&Account{}).
+			Where("source_type = ? AND token <> '' AND (auth_mode = '' OR auth_mode IS NULL)", SourceType115).
+			Updates(map[string]any{"auth_mode": AuthMode115OAuthLegacy, "token_failed_reason": "旧 OAuth 凭证无法转换为 Cookie，请重新扫码登录"})
+		if result.Error != nil {
+			helpers.AppLogger.Errorf("迁移旧115 OAuth凭证状态失败: %v", result.Error)
+		} else if result.RowsAffected > 0 {
+			helpers.AppLogger.Infof("已标记 %d 个旧115 OAuth账号需要重新扫码登录", result.RowsAffected)
+		}
 		migrator.UpdateVersionCode(db.Db)
 	}
 	helpers.AppLogger.Infof("当前数据库版本 %d", migrator.VersionCode)

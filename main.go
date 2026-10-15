@@ -561,6 +561,7 @@ func setRouter(r *gin.Engine) {
 		api.POST("/database/repair", controllers.RepairDB)                  // 更新系统设置
 		api.POST("/auth/115-qrcode-open", controllers.GetLoginQrCodeOpen)   // 获取115开放平台登录二维码
 		api.POST("/auth/115-qrcode-status", controllers.GetQrCodeStatus)    // 查询115二维码扫码状态
+		api.GET("/115/login-apps", controllers.GetNativeLoginApps)          // 获取115原生登录设备列表
 		api.GET("/115/status", controllers.Get115Status)                    // 查询115状态
 		api.GET("/115/oauth-url", controllers.GetOAuthUrl)                  // 获取115 OAuth登录地址
 		api.GET("/115/native-login", controllers.Native115LoginPage)         // 115原生二维码登录页面
@@ -1236,3 +1237,4 @@ func StartConfigWebServer() {
 		log.Fatalf("启动配置服务失败: %v", err)
 	}
 }
+

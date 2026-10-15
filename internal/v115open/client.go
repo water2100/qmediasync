@@ -20,6 +20,7 @@ type OpenClient struct {
 	AccessToken     string // 访问令牌
 	RefreshTokenStr string // 刷新令牌
 	Cookie          string // 原生二维码登录会话
+	LoginApp        string // 115 原生登录会话槽位
 	AuthMode        string // 认证方式
 }
 
@@ -36,12 +37,13 @@ func UpdateToken(accountId uint, cookie string, refreshToken string) {
 }
 
 // NewHttpClient 创建新的HTTP客户端
-func GetClient(accountId uint, appId string, credential string, refreshToken string, authMode string) *OpenClient {
+func GetClient(accountId uint, appId string, credential string, refreshToken string, authMode string, loginApp string) *OpenClient {
 	cachedClientsMutex.RLock()
 	defer cachedClientsMutex.RUnlock()
 	clientKey := fmt.Sprintf("%d", accountId)
 	if client, exists := cachedClients[clientKey]; exists {
 		client.SetCredentials(credential, refreshToken, authMode)
+		client.LoginApp = loginApp
 		return client
 	}
 
@@ -52,6 +54,7 @@ func GetClient(accountId uint, appId string, credential string, refreshToken str
 		AccountId: accountId,
 	}
 	openClient.SetCredentials(credential, refreshToken, authMode)
+	openClient.LoginApp = loginApp
 	cachedClients[clientKey] = openClient
 	return openClient
 }
@@ -247,4 +250,3 @@ func (c *OpenClient) markCookieInvalid(reason string) {
 	c.Cookie = ""
 	helpers.PublishSync(helpers.V115TokenInValidEvent, map[string]any{"account_id": c.AccountId, "reason": reason})
 }
-

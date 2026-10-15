@@ -77,7 +77,7 @@ func (account *Account) UpdateUser(userId string, username string) bool {
 
 // 如果是normal模式，创建一个新的客户端，不启用限速器
 func (account *Account) Get115Client() *v115open.OpenClient {
-	return v115open.GetClient(account.ID, account.AppId, account.Token, account.RefreshToken, account.AuthMode)
+	return v115open.GetClient(account.ID, account.AppId, account.Token, account.RefreshToken, account.AuthMode, account.LoginApp)
 }
 
 func (account *Account) Update115Cookie(cookie string, userID string, username string, loginApp string) bool {

@@ -29,6 +29,11 @@ RUN GOOS=linux GOARCH=${TARGETARCH} go build -ldflags "-s -w -X main.Version=${V
 FROM qicfan/qms-build-base:latest
 # 设置时区
 ENV TZ=Asia/Shanghai
+
+# 115 Cookie 下载/上传需要 p115client 的加解密与签名实现。
+RUN apk add --no-cache python3 py3-pip && \
+    python3 -m venv /opt/qms-python && \
+    /opt/qms-python/bin/pip install --no-cache-dir 'p115client==0.0.9.6.5.1'
 ENV PATH=/app:$PATH
 ENV DB_HOST=localhost
 ENV DB_PORT=5432
@@ -52,6 +57,8 @@ WORKDIR /app
 COPY --from=builder /app/QMediaSync .
 COPY --from=builder /app/web_statics ./web_statics/
 COPY --from=builder /app/scripts ./scripts/
+RUN /opt/qms-python/bin/python -c "from p115client import P115Client, check_response" && \
+    /opt/qms-python/bin/python -m py_compile /app/scripts/115_cookie_bridge.py
 # COPY --from=builder /app/icon.ico .
 # COPY QMediaSync .
 # COPY web_statics ./web_statics/

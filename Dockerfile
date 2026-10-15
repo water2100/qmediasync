@@ -33,7 +33,12 @@ ENV TZ=Asia/Shanghai
 # 115 Cookie 下载/上传需要 p115client 的加解密与签名实现。
 RUN apk add --no-cache python3 py3-pip && \
     python3 -m venv /opt/qms-python && \
-    /opt/qms-python/bin/pip install --no-cache-dir 'p115client==0.0.9.6.5.1'
+    /opt/qms-python/bin/pip install --no-cache-dir \
+      'p115client==0.0.9.6.5.1' \
+      'p115cipher==0.0.5.4' \
+      'python-concurrenttools==0.1.8' \
+      'python-http_request==0.1.7.1' \
+      'urllib3-future==2.22.900'
 ENV PATH=/app:$PATH
 ENV DB_HOST=localhost
 ENV DB_PORT=5432

@@ -17,6 +17,21 @@ const (
 	TypeDir  FileType = "0"
 )
 
+// UnmarshalJSON 兼容 115 将 fc 返回为数字或字符串的两种格式。
+func (f *FileType) UnmarshalJSON(data []byte) error {
+	var stringValue string
+	if err := json.Unmarshal(data, &stringValue); err == nil {
+		*f = FileType(stringValue)
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(data, &number); err != nil {
+		return err
+	}
+	*f = FileType(number.String())
+	return nil
+}
+
 type FileParentPath struct {
 	Name   string      `json:"name"`
 	FileId json.Number `json:"cid"`

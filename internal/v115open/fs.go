@@ -74,9 +74,25 @@ func (f *File) UnmarshalJSON(data []byte) error {
 	size := raw["s"]
 	utime := raw["t"]
 	ptime := raw["tp"]
+	stringFields := map[string]*string{
+		"fid": &f.FileId, "cid": &f.Cid, "aid": &f.Aid, "pid": &f.Pid,
+		"n": &f.FileName, "pc": &f.PickCode, "sha1": &f.Sha1, "fta": &f.Fta,
+		"ico": &f.Ico, "v_img": &f.VImg, "thumb": &f.Thumbnail, "uo": &f.Uo,
+	}
 	delete(raw, "s")
 	delete(raw, "t")
 	delete(raw, "tp")
+	playLong := raw["play_long"]
+	delete(raw, "play_long")
+	for key, target := range stringFields {
+		value := raw[key]
+		delete(raw, key)
+		var parseErr error
+		*target, parseErr = parse115String(value)
+		if parseErr != nil {
+			return parseErr
+		}
+	}
 	withoutSize, err := json.Marshal(raw)
 	if err != nil {
 		return err
@@ -91,7 +107,15 @@ func (f *File) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	f.Ptime, err = parse115Int64(ptime)
-	return err
+	if err != nil {
+		return err
+	}
+	playLongString, err := parse115String(playLong)
+	if err != nil {
+		return err
+	}
+	f.PlayLong = json.Number(playLongString)
+	return nil
 }
 
 func parse115Int64(raw json.RawMessage) (int64, error) {
@@ -107,6 +131,21 @@ func parse115Int64(raw json.RawMessage) (int64, error) {
 		return 0, err
 	}
 	return strconv.ParseInt(number.String(), 10, 64)
+}
+
+func parse115String(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+	var stringValue string
+	if err := json.Unmarshal(raw, &stringValue); err == nil {
+		return stringValue, nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err != nil {
+		return "", err
+	}
+	return number.String(), nil
 }
 
 type FileListResp struct {

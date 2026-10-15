@@ -199,13 +199,12 @@ func (c *OpenClient) doAuthRequest(ctx context.Context, url string, req *resty.R
 			// 请求成功
 			if respData != nil && queueResp.RespData.State {
 				// 解包响应数据
-				helpers.V115Log.Debugf("解包 %s", string(queueResp.RespData.Data))
 				if unmarshalErr := json.Unmarshal(queueResp.RespData.Data, respData); unmarshalErr != nil {
-					helpers.V115Log.Errorf("解包响应数据失败: %s", unmarshalErr.Error())
-					return queueResp.Response, queueResp.RespBytes, nil
+					return queueResp.Response, queueResp.RespBytes, fmt.Errorf("解析115响应数据失败: %w", unmarshalErr)
 				}
 			}
-			helpers.V115Log.Debugf("2请求 %s %s 响应: %s", req.Method, url, string(queueResp.RespBytes))
+			// 响应可能含有文件名、路径等私有数据；日志只保留请求结果摘要。
+			helpers.V115Log.Debugf("115请求成功: %s %s (code=%d)", req.Method, url, queueResp.RespData.Code)
 			return queueResp.Response, queueResp.RespBytes, nil
 		}
 
@@ -248,3 +247,4 @@ func (c *OpenClient) markCookieInvalid(reason string) {
 	c.Cookie = ""
 	helpers.PublishSync(helpers.V115TokenInValidEvent, map[string]any{"account_id": c.AccountId, "reason": reason})
 }
+

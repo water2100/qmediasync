@@ -4,6 +4,24 @@ import (
 	"testing"
 )
 
+func TestNativeLoginAppsMatchReferenceImplementation(t *testing.T) {
+	expected := []string{
+		"web", "ios", "115ios", "bandroid", "115ipad", "tv", "apple_tv",
+		"qios", "os_windows", "os_linux", "wechatmini", "alipaymini", "harmony",
+	}
+	if len(NativeLoginApps) != len(expected) {
+		t.Fatalf("设备数量不正确: got %d, want %d", len(NativeLoginApps), len(expected))
+	}
+	for _, app := range expected {
+		if !IsNativeLoginApp(app) {
+			t.Fatalf("缺少115登录设备: %s", app)
+		}
+	}
+	if IsNativeLoginApp("unknown") || IsNativeLoginApp("") {
+		t.Fatal("不应接受未知或空的115登录设备")
+	}
+}
+
 func TestDecodeNativeQrToken(t *testing.T) {
 	token, err := decodeNativeQrToken([]byte(`{"state":true,"data":{"uid":"uid-1","time":1710000000,"sign":"sign-1"}}`))
 	if err != nil {
@@ -62,3 +80,4 @@ func TestNormalizeNativeCookieRejectsMissingRequiredValue(t *testing.T) {
 		t.Fatal("缺少 KID 时应返回错误")
 	}
 }
+

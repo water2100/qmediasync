@@ -267,7 +267,8 @@ func GetLoginQrCodeOpen(c *gin.Context) {
 		return
 	}
 	if req.LoginApp == "" {
-		req.LoginApp = account.LoginApp
+		c.JSON(http.StatusBadRequest, APIResponse[any]{Code: BadRequest, Message: "请选择115登录设备"})
+		return
 	}
 	client := account.Get115Client()
 	qrCodeData, err := client.GetNativeQrCode(req.LoginApp)
@@ -300,6 +301,16 @@ func GetLoginQrCodeOpen(c *gin.Context) {
 		}
 	}(qrCodeData)
 	c.JSON(http.StatusOK, APIResponse[any]{Code: Success, Message: "获取二维码成功", Data: qrCodeData})
+}
+
+// GetNativeLoginApps 返回115原生二维码登录支持的全部会话槽位。
+// 客户端必须显式选择，避免默认设备顶掉用户已有的115会话。
+func GetNativeLoginApps(c *gin.Context) {
+	c.JSON(http.StatusOK, APIResponse[[]v115open.NativeLoginApp]{
+		Code:    Success,
+		Message: "",
+		Data:    v115open.NativeLoginApps,
+	})
 }
 
 // GetQrCodeStatus 查询二维码扫码状态
@@ -365,7 +376,8 @@ func Native115LoginPage(c *gin.Context) {
 		return
 	}
 	redirectURL, _ := json.Marshal(c.Query("redirect_url"))
-	page := fmt.Sprintf(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>115 扫码登录</title><style>body{font-family:sans-serif;text-align:center;margin:48px;color:#202124}img{width:280px;height:280px}#status{margin:18px}</style><h2>使用官方 115 App 扫码登录</h2><img id="qr" alt="115 登录二维码"><p id="status">正在获取二维码…</p><script>const accountId=%d,redirectURL=%s;const status=document.getElementById('status'),qr=document.getElementById('qr');fetch('/api/auth/115-qrcode-open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:accountId})}).then(r=>r.json()).then(r=>{if(r.code!==200)throw Error(r.message);qr.src=r.data.qrcode;status.textContent='请在 115 App 中扫码并确认';const timer=setInterval(()=>fetch('/api/auth/115-qrcode-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:accountId,uid:r.data.uid})}).then(x=>x.json()).then(x=>{if(x.data.reason){clearInterval(timer);status.textContent=x.data.reason;return}if(x.data.status===1)status.textContent='已扫码，请在 115 App 确认';if(x.data.status===2){clearInterval(timer);status.textContent='登录成功，正在返回…';setTimeout(()=>location.href=redirectURL,800)}if(x.data.status===-1||x.data.status===-2){clearInterval(timer);status.textContent='二维码已失效或取消，请返回后重新登录'}}),1500)}).catch(e=>status.textContent='获取二维码失败，请返回后重试');</script></html>`, account.ID, string(redirectURL))
+	loginApps, _ := json.Marshal(v115open.NativeLoginApps)
+	page := fmt.Sprintf(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>115 扫码登录</title><style>body{font-family:sans-serif;text-align:center;margin:48px;color:#202124}img{width:280px;height:280px;display:none}#status{margin:18px}select,button{font-size:16px;padding:8px;margin:4px}</style><h2>使用官方 115 App 扫码登录</h2><p>请选择一个未被你日常设备使用的登录会话槽位。</p><select id="app"></select><button id="start">生成二维码</button><br><img id="qr" alt="115 登录二维码"><p id="status">请先选择登录设备</p><script>const accountId=%d,redirectURL=%s,apps=%s;const status=document.getElementById('status'),qr=document.getElementById('qr'),app=document.getElementById('app'),start=document.getElementById('start');for(const item of apps){const option=document.createElement('option');option.value=item.app;option.textContent=item.description+' ('+item.app+')';app.append(option)}let timer;start.onclick=()=>{if(timer)clearInterval(timer);qr.style.display='none';start.disabled=true;status.textContent='正在获取二维码…';fetch('/api/auth/115-qrcode-open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:accountId,login_app:app.value})}).then(r=>r.json()).then(r=>{if(r.code!==200)throw Error(r.message);qr.src=r.data.qrcode;qr.style.display='inline-block';status.textContent='请在 115 App 中扫码并确认';timer=setInterval(()=>fetch('/api/auth/115-qrcode-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account_id:accountId,uid:r.data.uid})}).then(x=>x.json()).then(x=>{if(x.data.reason){clearInterval(timer);start.disabled=false;status.textContent=x.data.reason;return}if(x.data.status===1)status.textContent='已扫码，请在 115 App 确认';if(x.data.status===2){clearInterval(timer);status.textContent='登录成功，正在返回…';setTimeout(()=>location.href=redirectURL,800)}if(x.data.status===-1||x.data.status===-2){clearInterval(timer);start.disabled=false;status.textContent='二维码已失效或取消，请重新生成'}}),1500)}).catch(e=>{start.disabled=false;status.textContent='获取二维码失败：'+e.message})};</script></html>`, account.ID, string(redirectURL), string(loginApps))
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(page))
 }
 
@@ -598,3 +610,4 @@ func checkURLValidity(urlStr string, ua string) bool {
 	helpers.AppLogger.Infof("URL已失效: 状态码=%d", resp.StatusCode)
 	return false
 }
+

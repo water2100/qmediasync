@@ -7,7 +7,7 @@ import (
 
 func TestCookieFileListMaps115Fields(t *testing.T) {
 	var response FileListResp
-	if err := json.Unmarshal([]byte(`{"state":true,"count":2,"data":[{"cid":"10","n":"目录"},{"fid":"20","n":"视频.mkv","fc":"1","pc":"pick","s":"42"}]}`), &response); err != nil {
+	if err := json.Unmarshal([]byte(`{"state":true,"count":2,"data":[{"cid":"10","n":"目录"},{"fid":"20","n":"视频.mkv","fc":1,"pc":"pick","s":"42"}]}`), &response); err != nil {
 		t.Fatalf("解析 Cookie 文件列表失败: %v", err)
 	}
 	normalizeCookieFileList(&response)

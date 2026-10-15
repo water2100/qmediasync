@@ -95,7 +95,7 @@ func (f *File) UnmarshalJSON(data []byte) error {
 	ptime := raw["tp"]
 	stringFields := map[string]*string{
 		"fid": &f.FileId, "cid": &f.Cid, "aid": &f.Aid, "pid": &f.Pid,
-		"n": &f.FileName, "pc": &f.PickCode, "sha1": &f.Sha1, "fta": &f.Fta,
+		"n": &f.FileName, "pc": &f.PickCode, "sha": &f.Sha1, "fta": &f.Fta,
 		"ico": &f.Ico, "v_img": &f.VImg, "thumb": &f.Thumbnail, "uo": &f.Uo,
 	}
 	delete(raw, "s")
@@ -318,24 +318,7 @@ func (d *FileDetail) GetFullPath() string {
 
 // GetFsList 使用原生 Cookie 的 webapi /files，不再访问 OpenAPI。
 func (c *OpenClient) GetFsList(ctx context.Context, fileId string, showCur bool, onlyDir bool, showDir bool, offset int, limit int) (*FileListResp, error) {
-	data := map[string]string{"aid": "1", "cid": fileId}
-	if showCur {
-		data["cur"] = "1"
-	} else {
-		data["cur"] = "0"
-	}
-	if onlyDir {
-		data["stdir"] = "1"
-	}
-	if showDir {
-		data["show_dir"] = "1"
-	}
-	if limit != 0 {
-		data["limit"] = helpers.IntToString(limit)
-	}
-	if offset != 0 {
-		data["offset"] = helpers.IntToString(offset)
-	}
+	data := cookieFileListParams(fileId, showCur, onlyDir, showDir, offset, limit)
 	req := c.client.R().SetQueryParams(data).SetMethod("GET")
 	_, respBytes, err := c.doAuthRequest(ctx, fmt.Sprintf("%s/files", COOKIE_BASE_URL), req, MakeRequestConfig(3, 1, 15), nil)
 	if err != nil {
@@ -356,6 +339,28 @@ func (c *OpenClient) GetFsList(ctx context.Context, fileId string, showCur bool,
 	return &respData, nil
 }
 
+func cookieFileListParams(fileId string, showCur bool, onlyDir bool, showDir bool, offset int, limit int) map[string]string {
+	data := map[string]string{"aid": "1", "cid": fileId}
+	if showCur {
+		data["cur"] = "1"
+	} else {
+		data["cur"] = "0"
+	}
+	if onlyDir {
+		data["nf"] = "1"
+		data["show_dir"] = "1"
+	} else if showDir {
+		data["show_dir"] = "1"
+	}
+	if limit != 0 {
+		data["limit"] = helpers.IntToString(limit)
+	}
+	if offset != 0 {
+		data["offset"] = helpers.IntToString(offset)
+	}
+	return data
+}
+
 func normalizeCookieFileList(respData *FileListResp) {
 	for i := range respData.Data {
 		if respData.Data[i].FileId == "" {
@@ -374,6 +379,7 @@ func (c *OpenClient) GetFsDetailByPath(ctx context.Context, path string) (*FileD
 	currentID := "0"
 	paths := []FileDetailPath{{FileId: "0"}}
 	segments := strings.Split(path, "/")
+	var lastFile File
 	for segmentIndex, segment := range segments {
 		if segment == "" || segment == "." {
 			continue
@@ -402,13 +408,18 @@ func (c *OpenClient) GetFsDetailByPath(ctx context.Context, path string) (*FileD
 			return nil, fmt.Errorf("115 路径中包含文件: %s", path)
 		}
 		currentID = found.FileId
+		lastFile = *found
 		paths = append(paths, FileDetailPath{FileId: found.FileId, Name: found.FileName})
 	}
 	if len(paths) == 1 {
 		return nil, fmt.Errorf("115 文件不存在: %s", path)
 	}
-	last := paths[len(paths)-1]
-	return &FileDetail{FileId: last.FileId, FileName: last.Name, Paths: paths, Path: filepath.ToSlash(filepath.Join(strings.Split(path, "/")...))}, nil
+	return &FileDetail{
+		FileId: lastFile.FileId, FileName: lastFile.FileName, FileCategory: lastFile.FileCategory,
+		FileSizeByte: lastFile.FileSize, PickCode: lastFile.PickCode, Sha1: lastFile.Sha1,
+		Ptime: strconv.FormatInt(lastFile.Ptime, 10), Utime: strconv.FormatInt(lastFile.Utime, 10),
+		Paths: paths, Path: filepath.ToSlash(filepath.Join(strings.Split(path, "/")...)),
+	}, nil
 }
 
 // GetFsDetailByCid 使用 Cookie 文件详情接口。
@@ -436,7 +447,11 @@ func (c *OpenClient) GetFsDetailByCid(ctx context.Context, fileId string) (*File
 	if file.FileId == "" {
 		return nil, fmt.Errorf("115 文件详情缺少 ID")
 	}
-	list, err := c.GetFsList(ctx, fileId, true, false, true, 0, 1)
+	pathID := fileId
+	if file.FileCategory != TypeDir {
+		pathID = file.Cid
+	}
+	list, err := c.GetFsList(ctx, pathID, true, false, true, 0, 1)
 	if err != nil {
 		return nil, fmt.Errorf("获取115目录路径失败: %w", err)
 	}
@@ -447,6 +462,10 @@ func (c *OpenClient) GetFsDetailByCid(ctx context.Context, fileId string) (*File
 		if item.FileId != "0" {
 			pathNames = append(pathNames, item.Name)
 		}
+	}
+	if file.FileCategory != TypeDir {
+		paths = append(paths, FileDetailPath{FileId: file.FileId, Name: file.FileName})
+		pathNames = append(pathNames, file.FileName)
 	}
 	return &FileDetail{
 		FileId: file.FileId, FileName: file.FileName, FileCategory: file.FileCategory,
@@ -509,4 +528,3 @@ func (c *OpenClient) cookieMutation(ctx context.Context, path string, data map[s
 	}
 	return true, nil
 }
-

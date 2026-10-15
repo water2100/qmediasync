@@ -8,15 +8,29 @@ import (
 
 func TestCookieFileListMaps115Fields(t *testing.T) {
 	var response FileListResp
-	if err := json.Unmarshal([]byte(`{"state":true,"count":2,"data":[{"cid":10,"n":"目录","aid":1,"pid":0,"t":"1","tp":2},{"fid":20,"n":"视频.mkv","fc":1,"pc":"pick","s":"42","t":"3","tp":4}]}`), &response); err != nil {
+	if err := json.Unmarshal([]byte(`{"state":true,"count":2,"data":[{"cid":10,"n":"目录","aid":1,"pid":0,"t":"1","tp":2},{"fid":20,"cid":10,"n":"视频.mkv","fc":1,"pc":"pick","sha":"abc123","s":"42","t":"3","tp":4}]}`), &response); err != nil {
 		t.Fatalf("解析 Cookie 文件列表失败: %v", err)
 	}
 	normalizeCookieFileList(&response)
 	if response.Data[0].FileId != "10" || response.Data[0].FileCategory != TypeDir || response.Data[0].FileName != "目录" || response.Data[0].Aid != "1" || response.Data[0].Pid != "0" {
 		t.Fatalf("目录字段映射错误: %#v", response.Data[0])
 	}
-	if response.Data[1].FileId != "20" || response.Data[1].FileName != "视频.mkv" || response.Data[1].FileSize != 42 || response.Data[1].Utime != 3 || response.Data[1].Ptime != 4 {
+	if response.Data[1].FileId != "20" || response.Data[1].Cid != "10" || response.Data[1].Sha1 != "abc123" || response.Data[1].FileName != "视频.mkv" || response.Data[1].FileSize != 42 || response.Data[1].Utime != 3 || response.Data[1].Ptime != 4 {
 		t.Fatalf("文件字段映射错误: %#v", response.Data[1])
+	}
+}
+
+func TestCookieFileListParamsUseFolderOnlyFlag(t *testing.T) {
+	params := cookieFileListParams("10", true, true, true, 200, 200)
+	if params["nf"] != "1" || params["show_dir"] != "1" || params["cid"] != "10" || params["cur"] != "1" || params["offset"] != "200" || params["limit"] != "200" {
+		t.Fatalf("目录分页参数错误: %#v", params)
+	}
+	if _, exists := params["stdir"]; exists {
+		t.Fatal("stdir 是筛选文件时显示目录，不能用于只显示目录")
+	}
+	all := cookieFileListParams("0", true, false, true, 0, 100)
+	if _, exists := all["nf"]; exists {
+		t.Fatal("普通浏览不能过滤文件")
 	}
 }
 
@@ -81,4 +95,3 @@ func TestCookieResponseEnvelopeAcceptsWebAPIFields(t *testing.T) {
 		t.Fatalf("Cookie 业务错误解析失败: %#v, %v", failure, err)
 	}
 }
-

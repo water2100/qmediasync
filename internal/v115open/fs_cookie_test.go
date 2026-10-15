@@ -63,3 +63,22 @@ func TestCookieFileListRejectsInvalidScalarWithFieldContext(t *testing.T) {
 	}
 }
 
+func TestCookieResponseEnvelopeAcceptsWebAPIFields(t *testing.T) {
+	response, err := parse115Response([]byte(`{"state":true,"errNo":0,"error":"","data":[{"cid":"10","n":"目录","t":"1","tp":"2","fc":0}]}`))
+	if err != nil || !response.State || response.Code != 0 {
+		t.Fatalf("Cookie 响应头解析失败: %#v, %v", response, err)
+	}
+	var detail StructOrArray[File]
+	if err := json.Unmarshal(response.Data, &detail); err != nil {
+		t.Fatalf("get_info 数组响应解析失败: %v", err)
+	}
+	if len(detail.Array) != 1 || detail.Array[0].Cid != "10" || detail.Array[0].FileName != "目录" {
+		t.Fatalf("目录详情映射错误: %#v", detail)
+	}
+
+	failure, err := parse115Response([]byte(`{"state":false,"errNo":"401","error":"未登录","data":[]}`))
+	if err != nil || failure.State || failure.Code != 401 || failure.Message != "未登录" {
+		t.Fatalf("Cookie 业务错误解析失败: %#v, %v", failure, err)
+	}
+}
+

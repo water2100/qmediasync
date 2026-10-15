@@ -55,7 +55,6 @@ mainloop:
 			if len(resp.Data) == 0 {
 				break mainloop
 			}
-			fileItems = make([]*SyncFileCache, 0, len(resp.Data))
 		fileloop:
 			for _, file := range resp.Data {
 				if file.Aid != "1" {
@@ -84,7 +83,7 @@ mainloop:
 				fileItems = append(fileItems, &fileItem)
 			}
 			// 如果返回数据不足一页，说明已经取完了
-			if int64(resp.Count) <= int64(limit) {
+			if len(resp.Data) < limit || offset+len(resp.Data) >= resp.Count {
 				break mainloop
 			}
 		}
@@ -199,7 +198,7 @@ func (d *open115Driver) GetDirsByPathId(ctx context.Context, pathId string) ([]p
 				continue
 			}
 			d.s.Sync.Logger.Errorf("获取115网盘目录失败: 目录ID %s, %v", pathId, err)
-			break
+			return nil, err
 		}
 		if len(resp.Data) == 0 {
 			break
@@ -219,7 +218,7 @@ func (d *open115Driver) GetDirsByPathId(ctx context.Context, pathId string) ([]p
 				Mtime:  file.Ptime,
 			})
 		}
-		if resp.Count < limit {
+		if len(resp.Data) < limit || offset+len(resp.Data) >= resp.Count {
 			break
 		}
 		offset += limit
@@ -281,3 +280,4 @@ func (d *open115Driver) DeleteFile(ctx context.Context, parentId string, fileIds
 func (d *open115Driver) GetFilesByPathMtime(ctx context.Context, rootPathId string, offset, limit int, mtime int64) (*baidupan.FileListAllResponse, error) {
 	return nil, nil
 }
+

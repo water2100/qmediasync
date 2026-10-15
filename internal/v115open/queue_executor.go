@@ -333,26 +333,14 @@ func (qe *QueueExecutor) executeRequest(req *QueuedRequest) (*resty.Response, *R
 		return response, nil, nil, ioErr
 	}
 
-	resp := &RespBaseBool[json.RawMessage]{}
-	bodyErr := json.Unmarshal(resBytes, resp)
+	resp, bodyErr := parse115Response(resBytes)
 	if bodyErr != nil {
-		// 兼容state为数字的响应
-		respBase := &RespBase[json.RawMessage]{}
-		if err := json.Unmarshal(resBytes, respBase); err != nil {
-			helpers.V115Log.Errorf("解析响应失败: %s", bodyErr.Error())
-			return response, resp, resBytes, bodyErr
-		}
-		resp = &RespBaseBool[json.RawMessage]{
-			State:   respBase.State != 0,
-			Code:    respBase.Code,
-			Message: respBase.Message,
-			Data:    respBase.Data,
-		}
+		return response, nil, resBytes, bodyErr
 	}
 
 	// 不记录响应 data：其中可能包含文件名、目录结构等用户私有信息。
-	helpers.V115Log.Infof("队列执行 %s %s state=%v, code=%d, msg=%s",
-		req.Request.Method, req.URL, resp.State, resp.Code, resp.Message)
+	helpers.V115Log.Infof("队列执行 %s %s state=%v, code=%d",
+		req.Request.Method, req.URL, resp.State, resp.Code)
 
 	// 检查错误码
 	switch resp.Code {
@@ -367,12 +355,44 @@ func (qe *QueueExecutor) executeRequest(req *QueuedRequest) (*resty.Response, *R
 		return response, resp, resBytes, fmt.Errorf("访问频率过高")
 	}
 
-	if resp.Code != 0 {
-		// helpers.V115Log.Errorf("错误码：%d，错误信息：%s", resp.Code, string(resBytes))
-		return response, resp, resBytes, fmt.Errorf("错误码：%d，错误信息：%s", resp.Code, resp.Message)
+	if !resp.State || (resp.Code != 0 && resp.Code != 200) {
+		return response, resp, resBytes, fmt.Errorf("115请求失败，错误码：%d", resp.Code)
 	}
 
 	return response, resp, resBytes, nil
+}
+
+// parse115Response accepts the scalar variants used by both the OpenAPI and
+// the Cookie web API. The latter uses errNo/error instead of code/message.
+func parse115Response(data []byte) (*RespBaseBool[json.RawMessage], error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("解析115响应失败: %w", err)
+	}
+	state, err := parse115Bool(raw["state"])
+	if err != nil {
+		return nil, fmt.Errorf("解析115响应状态失败: %w", err)
+	}
+	codeRaw := raw["code"]
+	if len(codeRaw) == 0 || string(codeRaw) == "null" {
+		codeRaw = raw["errNo"]
+	}
+	code, err := parse115Int(codeRaw)
+	if err != nil {
+		return nil, fmt.Errorf("解析115响应错误码失败: %w", err)
+	}
+	messageRaw := raw["message"]
+	if len(messageRaw) == 0 || string(messageRaw) == "null" {
+		messageRaw = raw["error"]
+	}
+	if len(messageRaw) == 0 || string(messageRaw) == "null" {
+		messageRaw = raw["msg"]
+	}
+	message, err := parse115String(messageRaw)
+	if err != nil {
+		return nil, fmt.Errorf("解析115响应消息失败: %w", err)
+	}
+	return &RespBaseBool[json.RawMessage]{State: state, Code: code, Message: message, Data: raw["data"]}, nil
 }
 
 // EnqueueRequest 将请求加入队列

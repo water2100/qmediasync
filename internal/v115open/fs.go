@@ -318,17 +318,24 @@ func (d *FileDetail) GetFullPath() string {
 
 // GetFsList 使用原生 Cookie 的 webapi /files，不再访问 OpenAPI。
 func (c *OpenClient) GetFsList(ctx context.Context, fileId string, showCur bool, onlyDir bool, showDir bool, offset int, limit int) (*FileListResp, error) {
-	data := map[string]string{"aid": "1", "cid": fileId, "show_dir": "1"}
+	data := map[string]string{"aid": "1", "cid": fileId}
+	if showCur {
+		data["cur"] = "1"
+	} else {
+		data["cur"] = "0"
+	}
+	if onlyDir {
+		data["stdir"] = "1"
+	}
+	if showDir {
+		data["show_dir"] = "1"
+	}
 	if limit != 0 {
 		data["limit"] = helpers.IntToString(limit)
 	}
 	if offset != 0 {
 		data["offset"] = helpers.IntToString(offset)
 	}
-	// /files 始终列出当前目录；参数保留只是为了不破坏现有调用方。
-	_ = showCur
-	_ = onlyDir
-	_ = showDir
 	req := c.client.R().SetQueryParams(data).SetMethod("GET")
 	_, respBytes, err := c.doAuthRequest(ctx, fmt.Sprintf("%s/files", COOKIE_BASE_URL), req, MakeRequestConfig(3, 1, 15), nil)
 	if err != nil {
@@ -365,29 +372,39 @@ func (c *OpenClient) GetFsDetailByPath(ctx context.Context, path string) (*FileD
 		return nil, fmt.Errorf("不能查询根目录的详情")
 	}
 	currentID := "0"
-	paths := make([]FileDetailPath, 0)
-	for _, segment := range strings.Split(path, "/") {
+	paths := []FileDetailPath{{FileId: "0"}}
+	segments := strings.Split(path, "/")
+	for segmentIndex, segment := range segments {
 		if segment == "" || segment == "." {
 			continue
 		}
-		list, err := c.GetFsList(ctx, currentID, true, false, true, 0, 1150)
-		if err != nil {
-			return nil, err
-		}
 		var found *File
-		for i := range list.Data {
-			if list.Data[i].FileName == segment {
-				found = &list.Data[i]
+		for offset := 0; ; {
+			list, err := c.GetFsList(ctx, currentID, true, false, true, offset, 1150)
+			if err != nil {
+				return nil, err
+			}
+			for i := range list.Data {
+				if list.Data[i].FileName == segment {
+					found = &list.Data[i]
+					break
+				}
+			}
+			if found != nil || len(list.Data) < 1150 || offset+len(list.Data) >= list.Count {
 				break
 			}
+			offset += len(list.Data)
 		}
 		if found == nil {
 			return nil, fmt.Errorf("115 文件不存在: %s", path)
 		}
+		if segmentIndex < len(segments)-1 && found.FileCategory != TypeDir {
+			return nil, fmt.Errorf("115 路径中包含文件: %s", path)
+		}
 		currentID = found.FileId
 		paths = append(paths, FileDetailPath{FileId: found.FileId, Name: found.FileName})
 	}
-	if len(paths) == 0 {
+	if len(paths) == 1 {
 		return nil, fmt.Errorf("115 文件不存在: %s", path)
 	}
 	last := paths[len(paths)-1]
@@ -400,22 +417,43 @@ func (c *OpenClient) GetFsDetailByCid(ctx context.Context, fileId string) (*File
 		return nil, fmt.Errorf("fileId is empty")
 	}
 	req := c.client.R().SetQueryParams(map[string]string{"file_id": fileId}).SetMethod("GET")
-	var data FileDetail
-	_, _, err := c.doAuthRequest(ctx, fmt.Sprintf("%s/files/get_info", COOKIE_BASE_URL), req, MakeRequestConfig(3, 1, 60), &data)
+	var info StructOrArray[File]
+	_, _, err := c.doAuthRequest(ctx, fmt.Sprintf("%s/files/get_info", COOKIE_BASE_URL), req, MakeRequestConfig(3, 1, 60), &info)
 	if err != nil {
 		return nil, fmt.Errorf("调用115 Cookie文件详情接口失败: %w", err)
 	}
-	if data.FileId == "" {
+	var file File
+	if info.Value != nil {
+		file = *info.Value
+	} else if len(info.Array) > 0 {
+		file = info.Array[0]
+	} else {
 		return nil, fmt.Errorf("115 返回空数据")
 	}
-	pathStr := make([]string, 0, len(data.Paths))
-	for _, item := range data.Paths {
+	if file.FileId == "" {
+		file.FileId = file.Cid
+	}
+	if file.FileId == "" {
+		return nil, fmt.Errorf("115 文件详情缺少 ID")
+	}
+	list, err := c.GetFsList(ctx, fileId, true, false, true, 0, 1)
+	if err != nil {
+		return nil, fmt.Errorf("获取115目录路径失败: %w", err)
+	}
+	paths := make([]FileDetailPath, 0, len(list.Path))
+	pathNames := make([]string, 0, len(list.Path))
+	for _, item := range list.Path {
+		paths = append(paths, FileDetailPath{FileId: item.FileId, Name: item.Name})
 		if item.FileId != "0" {
-			pathStr = append(pathStr, item.Name)
+			pathNames = append(pathNames, item.Name)
 		}
 	}
-	data.Path = filepath.ToSlash(filepath.Join(pathStr...))
-	return &data, nil
+	return &FileDetail{
+		FileId: file.FileId, FileName: file.FileName, FileCategory: file.FileCategory,
+		FileSizeByte: file.FileSize, PickCode: file.PickCode, Sha1: file.Sha1,
+		Ptime: strconv.FormatInt(file.Ptime, 10), Utime: strconv.FormatInt(file.Utime, 10),
+		Paths: paths, Path: filepath.ToSlash(filepath.Join(pathNames...)),
+	}, nil
 }
 
 func (c *OpenClient) ReName(ctx context.Context, fileId string, newName string) (bool, error) {

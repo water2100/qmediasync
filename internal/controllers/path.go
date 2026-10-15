@@ -195,6 +195,9 @@ func GetOpenListPath(parentPath string, accountId uint) ([]DirResp, error) {
 
 func Get115PathList(parentId string, accountId uint) ([]DirResp, error) {
 	// 获取115目录列表
+	if parentId == "" {
+		parentId = "0"
+	}
 	account, err := models.GetAccountById(accountId)
 	if err != nil {
 		return nil, err
@@ -202,27 +205,26 @@ func Get115PathList(parentId string, accountId uint) ([]DirResp, error) {
 	client := account.Get115Client()
 	helpers.AppLogger.Infof("开始获取115目录列表, 父目录ID: %s", parentId)
 	ctx := context.Background()
-	resp, err := client.GetFsList(ctx, parentId, true, true, true, 0, 200)
-	if err != nil {
-		helpers.AppLogger.Warnf("获取115目录列表失败: 父目录：%s, 错误:%v", parentId, err)
-		return nil, err
-	}
-	helpers.AppLogger.Infof("成功获取115目录列表, 父目录ID: %s, 文件数量: %d", parentId, len(resp.Data))
 	folders := make([]DirResp, 0)
-	// 构建Path
-	for _, item := range resp.Data {
-		parentPath := resp.PathStr
-		if parentPath == "" {
-			parentPath = ""
+	for offset := 0; ; {
+		resp, err := client.GetFsList(ctx, parentId, true, true, true, offset, 200)
+		if err != nil {
+			helpers.AppLogger.Warnf("获取115目录列表失败: 父目录：%s, 错误:%v", parentId, err)
+			return nil, err
 		}
-		helpers.AppLogger.Infof("遍历 %s 的115目录列表, 路径: %s", parentPath, item.FileName)
-		if item.FileCategory == v115open.TypeDir {
-			folders = append(folders, DirResp{
-				Id:   item.FileId,
-				Name: item.FileName,
-				Path: filepath.ToSlash(filepath.Join(parentPath, item.FileName)),
-			})
+		for _, item := range resp.Data {
+			if item.FileCategory == v115open.TypeDir {
+				folders = append(folders, DirResp{
+					Id:   item.FileId,
+					Name: item.FileName,
+					Path: filepath.ToSlash(filepath.Join(resp.PathStr, item.FileName)),
+				})
+			}
 		}
+		if len(resp.Data) < 200 || offset+len(resp.Data) >= resp.Count {
+			break
+		}
+		offset += len(resp.Data)
 	}
 	return folders, nil
 }
@@ -605,3 +607,4 @@ func DeleteDir(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, APIResponse[any]{Code: Success, Message: "删除目录成功", Data: nil})
 }
+

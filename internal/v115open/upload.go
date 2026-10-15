@@ -183,7 +183,7 @@ func (c *OpenClient) Upload(ctx context.Context, filePath string, parentFileId s
 		"pre_id":    preSha1,
 		"topupload": "0",
 	}
-	helpers.V115Log.Infof("准备上传文件: %s, 大小: %d, SHA1: %s, 前128位SHA1: %s, ParentId: %s, sign_key: %s, sign_val: %s\n", fileName, fileSize, fileSha1, preSha1, parentFileId, signKey, signVal)
+	helpers.V115Log.Debug("准备115文件上传")
 	if signKey != "" && signVal != "" {
 		params["sign_key"] = signKey
 		params["sign_val"] = signVal
@@ -209,7 +209,7 @@ func (c *OpenClient) Upload(ctx context.Context, filePath string, parentFileId s
 		}
 		offset := helpers.StringToInt64(signParts[0])
 		length := helpers.StringToInt64(signParts[1])
-		helpers.V115Log.Warnf("需要二次认证: offset=%d, length=%d, sign_key=%s\n", offset, length, signKey)
+		helpers.V115Log.Debug("115上传需要二次签名验证")
 		signVal, _ := helpers.FileSHA1Partial(filePath, offset, length)
 		params["sign_key"] = signKey
 		params["sign_val"] = signVal
@@ -244,7 +244,7 @@ func (c *OpenClient) Upload(ctx context.Context, filePath string, parentFileId s
 		callbackVar := callbackData.CallbackVar
 		bucket := respData.Bucket
 		objectId := respData.Object
-		helpers.V115Log.Infof("OSS上传的参数: callback=%s, callback_var=%s, bucket=%s, object_id=%s, endpoint=%s, AccessKeyId=%s, AccessKeySecret=%s, SecurityToken=%s", callback, callbackVar, bucket, objectId, uploadToken.Endpoint, uploadToken.AccessKeyId, uploadToken.AccessKeySecret, uploadToken.SecurityToken)
+		helpers.V115Log.Debug("开始115 OSS文件上传")
 		callbackResult, ossErr := OssUploadFile(uploadToken.Endpoint, uploadToken.AccessKeyId, uploadToken.AccessKeySecret, uploadToken.SecurityToken, bucket, objectId, callback, callbackVar, filePath, fileSize, fileSha1)
 		if ossErr != nil {
 			// helpers.V115Log.Error("OSS上传失败: %v", ossErr)
@@ -334,6 +334,6 @@ func OssUploadFile(endPoint string, accessKeyId string, accessKeySecret string, 
 		return nil, err
 	}
 	// 打印上传对象的结果
-	helpers.V115Log.Infof("OSS上传结果:%#v\n", result)
+	helpers.V115Log.Debug("115 OSS文件上传完成")
 	return result.CallbackResult, nil
 }

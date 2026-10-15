@@ -201,9 +201,9 @@ func Get115UrlByPickCode(c *gin.Context) {
 		}
 		cachedUrl := string(db.Cache.Get(cacheKey))
 		if cachedUrl != "" {
-			helpers.AppLogger.Infof("从缓存中查询到115下载链接: pickcode=%s, ua=%s => %s", pickCode, ua, cachedUrl)
+			helpers.AppLogger.Debug("命中115下载链接缓存")
 			if !checkURLValidity(cachedUrl, ua) {
-				helpers.AppLogger.Infof("缓存链接已失效，删除缓存并重新获取: pickcode=%s", req.PickCode)
+				helpers.AppLogger.Debug("115下载链接缓存已失效，准备重新获取")
 				db.Cache.Delete(cacheKey)
 				cachedUrl = ""
 			}
@@ -214,22 +214,22 @@ func Get115UrlByPickCode(c *gin.Context) {
 				c.JSON(http.StatusOK, APIResponse[any]{Code: BadRequest, Message: "获取115下载链接失败", Data: nil})
 				return
 			}
-			helpers.AppLogger.Infof("从接口中查询到115下载链接: pickcode=%s, ua=%s => %s", pickCode, ua, cachedUrl)
+			helpers.AppLogger.Debug("已获取115下载链接")
 			// 缓存50分钟
 			db.Cache.Set(cacheKey, []byte(cachedUrl), 3000)
 		}
 		if req.Force == 0 {
 			if models.SettingsGlobal.LocalProxy == 1 {
 				// 跳转到本地代理
-				helpers.AppLogger.Infof("通过本地代理访问115下载链接，emby端口播放: %s", cachedUrl)
+				helpers.AppLogger.Debug("通过本地代理访问115下载链接")
 				proxyUrl := fmt.Sprintf("/proxy-115?url=%s", url.QueryEscape(cachedUrl))
 				c.Redirect(http.StatusFound, proxyUrl)
 			} else {
-				helpers.AppLogger.Infof("302重定向到115下载链接，emby端口播放: %s", cachedUrl)
+				helpers.AppLogger.Debug("重定向到115下载链接")
 				c.Redirect(http.StatusFound, cachedUrl)
 			}
 		} else {
-			helpers.AppLogger.Infof("302重定向到115下载链接， 直链播放: %s", cachedUrl)
+			helpers.AppLogger.Debug("重定向到115直链")
 			c.Redirect(http.StatusFound, cachedUrl)
 		}
 	}
@@ -568,7 +568,7 @@ func CleanOldRequestStats(c *gin.Context) {
 // 返回true表示URL有效（2xx状态码），false表示URL已失效
 // ua参数：必须使用当前请求的USER-AGENT访问115链接（否则返回403）
 func checkURLValidity(urlStr string, ua string) bool {
-	helpers.AppLogger.Infof("URL有效性检查开始: %s, UA=%s", urlStr, ua)
+	helpers.AppLogger.Debug("开始检查115下载链接有效性")
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		Transport: &http.Transport{
@@ -610,4 +610,3 @@ func checkURLValidity(urlStr string, ua string) bool {
 	helpers.AppLogger.Infof("URL已失效: 状态码=%d", resp.StatusCode)
 	return false
 }
-

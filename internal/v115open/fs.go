@@ -72,7 +72,11 @@ func (f *File) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	size := raw["s"]
+	utime := raw["t"]
+	ptime := raw["tp"]
 	delete(raw, "s")
+	delete(raw, "t")
+	delete(raw, "tp")
 	withoutSize, err := json.Marshal(raw)
 	if err != nil {
 		return err
@@ -80,15 +84,29 @@ func (f *File) UnmarshalJSON(data []byte) error {
 	if err = json.Unmarshal(withoutSize, (*fileAlias)(f)); err != nil {
 		return err
 	}
-	if len(size) == 0 || string(size) == "null" {
-		return nil
-	}
-	var number json.Number
-	if err = json.Unmarshal(size, &number); err != nil {
+	if f.FileSize, err = parse115Int64(size); err != nil {
 		return err
 	}
-	f.FileSize, err = strconv.ParseInt(number.String(), 10, 64)
+	if f.Utime, err = parse115Int64(utime); err != nil {
+		return err
+	}
+	f.Ptime, err = parse115Int64(ptime)
 	return err
+}
+
+func parse115Int64(raw json.RawMessage) (int64, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, nil
+	}
+	var stringValue string
+	if err := json.Unmarshal(raw, &stringValue); err == nil {
+		return strconv.ParseInt(stringValue, 10, 64)
+	}
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err != nil {
+		return 0, err
+	}
+	return strconv.ParseInt(number.String(), 10, 64)
 }
 
 type FileListResp struct {

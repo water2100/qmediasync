@@ -103,7 +103,8 @@
     if (!button || button.textContent.trim() !== '授权') return;
     const card = button.closest('.account-card');
     if (!card || !card.textContent.includes('115')) return;
-    const match = card.textContent.match(/#(\d+)/);
+    const accountIdElement = card.querySelector('.card-id');
+    const match = accountIdElement?.textContent.match(/^#(\d+)$/);
     if (!match) return;
     event.preventDefault();
     event.stopImmediatePropagation();

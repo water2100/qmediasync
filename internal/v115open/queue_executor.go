@@ -350,8 +350,9 @@ func (qe *QueueExecutor) executeRequest(req *QueuedRequest) (*resty.Response, *R
 		}
 	}
 
-	helpers.V115Log.Infof("队列执行 %s %s\nstate=%v, code=%d, msg=%s, data=%s\n",
-		req.Request.Method, req.URL, resp.State, resp.Code, resp.Message, string(resp.Data))
+	// 不记录响应 data：其中可能包含文件名、目录结构等用户私有信息。
+	helpers.V115Log.Infof("队列执行 %s %s state=%v, code=%d, msg=%s",
+		req.Request.Method, req.URL, resp.State, resp.Code, resp.Message)
 
 	// 检查错误码
 	switch resp.Code {
@@ -406,3 +407,4 @@ func (qe *QueueExecutor) SetThrottledForTesting(throttled bool) {
 		qe.throttleManager.ClearThrottled()
 	}
 }
+

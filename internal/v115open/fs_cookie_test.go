@@ -34,6 +34,22 @@ func TestCookieFileListParamsUseFolderOnlyFlag(t *testing.T) {
 	}
 }
 
+func TestCookieCreatedFolderIDUsesTopLevelCid(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want string
+	}{
+		{`{"state":true,"cid":"123","aid":1}`, "123"},
+		{`{"state":true,"cid":456,"aid":1}`, "456"},
+		{`{"state":true,"data":{"file_id":"789"}}`, "789"},
+	} {
+		got, err := cookieCreatedFolderID([]byte(tc.body))
+		if err != nil || got != tc.want {
+			t.Fatalf("新建目录 ID 解析错误: got=%q want=%q err=%v", got, tc.want, err)
+		}
+	}
+}
+
 func TestCookieFileListAcceptsMixedScalarTypes(t *testing.T) {
 	// 115's Cookie API returns different scalar JSON types for the same fields
 	// depending on account, endpoint version, and whether the item is a file or

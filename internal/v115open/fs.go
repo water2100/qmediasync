@@ -501,16 +501,42 @@ func (c *OpenClient) Del(ctx context.Context, fileIds []string, parentFileId str
 }
 
 func (c *OpenClient) MkDir(ctx context.Context, parentFileId string, fileName string) (string, error) {
-	var result MkDirData
 	data := map[string]string{"cname": fileName, "pid": parentFileId}
-	_, _, err := c.doAuthRequest(ctx, fmt.Sprintf("%s/files/add", COOKIE_BASE_URL), c.client.R().SetFormData(data).SetMethod("POST"), MakeRequestConfig(0, 0, 0), &result)
+	_, body, err := c.doAuthRequest(ctx, fmt.Sprintf("%s/files/add", COOKIE_BASE_URL), c.client.R().SetFormData(data).SetMethod("POST"), MakeRequestConfig(0, 0, 0), nil)
 	if err != nil {
 		return "", fmt.Errorf("新建115目录失败: %w", err)
 	}
-	if result.FileId == "" {
+	fileID, err := cookieCreatedFolderID(body)
+	if err != nil {
+		return "", fmt.Errorf("解析115新建目录响应失败: %w", err)
+	}
+	if fileID == "" {
 		return "", fmt.Errorf("115 新建目录响应缺少文件ID")
 	}
-	return result.FileId, nil
+	return fileID, nil
+}
+
+func cookieCreatedFolderID(body []byte) (string, error) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(body, &root); err != nil {
+		return "", err
+	}
+	// /files/add returns cid at the response top level, unlike /open/folder/add.
+	for _, key := range []string{"cid", "file_id"} {
+		if id, err := parse115String(root[key]); err != nil || id != "" {
+			return id, err
+		}
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(root["data"], &data); err != nil {
+		return "", nil
+	}
+	for _, key := range []string{"cid", "file_id"} {
+		if id, err := parse115String(data[key]); err != nil || id != "" {
+			return id, err
+		}
+	}
+	return "", nil
 }
 
 func indexedFileIDs(fileIDs []string) map[string]string {

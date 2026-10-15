@@ -18,10 +18,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Test 115 Cookie response handling
-        run: go test ./internal/v115open ./internal/syncstrm
+        env:
+          GOPROXY: https://goproxy.cn,direct
+          GOSUMDB: off
+        run: |
+          go mod tidy
+          go test ./internal/v115open ./internal/syncstrm
 
       - uses: docker/setup-buildx-action@v3
 

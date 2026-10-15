@@ -33,8 +33,27 @@ func (f *FileType) UnmarshalJSON(data []byte) error {
 }
 
 type FileParentPath struct {
-	Name   string      `json:"name"`
-	FileId json.Number `json:"cid"`
+	Name   string `json:"name"`
+	FileId string `json:"cid"`
+}
+
+// UnmarshalJSON keeps the Cookie API boundary tolerant: 115 may return the
+// same identifier as either a JSON number or a JSON string.
+func (p *FileParentPath) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var err error
+	p.Name, err = parse115String(raw["name"])
+	if err != nil {
+		return fmt.Errorf("解析路径名称失败: %w", err)
+	}
+	p.FileId, err = parse115String(raw["cid"])
+	if err != nil {
+		return fmt.Errorf("解析路径ID失败: %w", err)
+	}
+	return nil
 }
 
 type FileDetailPath struct {
@@ -90,7 +109,7 @@ func (f *File) UnmarshalJSON(data []byte) error {
 		var parseErr error
 		*target, parseErr = parse115String(value)
 		if parseErr != nil {
-			return parseErr
+			return fmt.Errorf("解析文件字段 %s 失败: %w", key, parseErr)
 		}
 	}
 	withoutSize, err := json.Marshal(raw)
@@ -101,18 +120,18 @@ func (f *File) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if f.FileSize, err = parse115Int64(size); err != nil {
-		return err
+		return fmt.Errorf("解析文件大小失败: %w", err)
 	}
 	if f.Utime, err = parse115Int64(utime); err != nil {
-		return err
+		return fmt.Errorf("解析文件更新时间失败: %w", err)
 	}
 	f.Ptime, err = parse115Int64(ptime)
 	if err != nil {
-		return err
+		return fmt.Errorf("解析文件创建时间失败: %w", err)
 	}
 	playLongString, err := parse115String(playLong)
 	if err != nil {
-		return err
+		return fmt.Errorf("解析文件时长失败: %w", err)
 	}
 	f.PlayLong = json.Number(playLongString)
 	return nil
@@ -124,6 +143,9 @@ func parse115Int64(raw json.RawMessage) (int64, error) {
 	}
 	var stringValue string
 	if err := json.Unmarshal(raw, &stringValue); err == nil {
+		if stringValue == "" {
+			return 0, nil
+		}
 		return strconv.ParseInt(stringValue, 10, 64)
 	}
 	var number json.Number
@@ -156,6 +178,105 @@ type FileListResp struct {
 	Offset   json.Number      `json:"offset"`
 	Path     []FileParentPath `json:"path"`
 	PathStr  string           `json:"path_str"`
+}
+
+// UnmarshalJSON is deliberately the only decoding boundary for /files.
+// 115's Cookie endpoints do not keep a stable JSON scalar type: ids, counts,
+// and pagination values can all change between a number and a string.  Decode
+// them explicitly here so callers always receive the stable application model.
+func (r *FileListResp) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	state, err := parse115Bool(raw["state"])
+	if err != nil {
+		return fmt.Errorf("解析列表状态失败: %w", err)
+	}
+	code, err := parse115Int(raw["code"])
+	if err != nil {
+		return fmt.Errorf("解析列表状态码失败: %w", err)
+	}
+	message, err := parse115String(raw["message"])
+	if err != nil {
+		return fmt.Errorf("解析列表消息失败: %w", err)
+	}
+	count, err := parse115Int(raw["count"])
+	if err != nil {
+		return fmt.Errorf("解析列表数量失败: %w", err)
+	}
+	sysCount, err := parse115Int(raw["sys_count"])
+	if err != nil {
+		return fmt.Errorf("解析系统文件数量失败: %w", err)
+	}
+	limit, err := parse115String(raw["limit"])
+	if err != nil {
+		return fmt.Errorf("解析列表页大小失败: %w", err)
+	}
+	offset, err := parse115String(raw["offset"])
+	if err != nil {
+		return fmt.Errorf("解析列表偏移失败: %w", err)
+	}
+
+	var files []File
+	if value := raw["data"]; len(value) > 0 && string(value) != "null" {
+		if err := json.Unmarshal(value, &files); err != nil {
+			return fmt.Errorf("解析列表项目失败: %w", err)
+		}
+	}
+	var paths []FileParentPath
+	if value := raw["path"]; len(value) > 0 && string(value) != "null" {
+		if err := json.Unmarshal(value, &paths); err != nil {
+			return fmt.Errorf("解析列表路径失败: %w", err)
+		}
+	}
+	pathStr, err := parse115String(raw["path_str"])
+	if err != nil {
+		return fmt.Errorf("解析列表路径文本失败: %w", err)
+	}
+
+	r.RespBaseBool = RespBaseBool[[]File]{State: state, Code: code, Message: message, Data: files}
+	r.Count = count
+	r.SysCount = sysCount
+	r.Limit = json.Number(limit)
+	r.Offset = json.Number(offset)
+	r.Path = paths
+	r.PathStr = pathStr
+	return nil
+}
+
+func parse115Int(raw json.RawMessage) (int, error) {
+	value, err := parse115Int64(raw)
+	if err != nil {
+		return 0, err
+	}
+	if int64(int(value)) != value {
+		return 0, fmt.Errorf("数值超出 int 范围: %d", value)
+	}
+	return int(value), nil
+}
+
+func parse115Bool(raw json.RawMessage) (bool, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return false, nil
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value, nil
+	}
+	text, err := parse115String(raw)
+	if err != nil {
+		return false, err
+	}
+	switch strings.ToLower(strings.TrimSpace(text)) {
+	case "1", "true":
+		return true, nil
+	case "0", "false", "":
+		return false, nil
+	default:
+		return false, fmt.Errorf("无效布尔值 %q", text)
+	}
 }
 
 type FileDetail struct {
